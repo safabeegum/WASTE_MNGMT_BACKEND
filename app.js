@@ -5,6 +5,9 @@ const jwt = require("jsonwebtoken");
 const Bcrypt = require("bcrypt");
 const userModel = require("./models/Users");
 const adminModel = require("./models/Admin");
+const collectModel = require("./models/Collector");
+const addcollectorModel = require("./models/AddCollector");
+const userfeedbackModel = require("./models/UserFeedback");
 
 let app = Express();
 app.use(Express.json());
@@ -45,6 +48,111 @@ app.post("/adminsignin", async(req,res)=>{
                               else 
                               {
                                   res.json({ status: "Success","token":token,"adminId":items[0]._id });
+                              }
+                          })
+                  } 
+                  else 
+                  {
+                      res.json({"status":"Incorrect Password"})
+                  }
+              } 
+              else 
+              {
+                  res.json({"status":"Invalid Username"})
+              }
+          }
+  ).catch()
+})
+
+//AddCollector API
+app.post("/addcollector",(req,res)=>{
+    let input = req.body
+    let token = req.headers.token
+
+//verifying token is valid  (start)
+    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+        if(decoded && decoded.username) {
+                let result = new addcollectorModel(input)
+                await result.save()
+                res.json({"status":"Success"})
+        }
+        else{
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+//  (end)
+})
+
+//ViewCollector API
+app.post("/viewcollector",(req,res)=>{
+    let token = req.headers.token
+    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+        if(decoded && decoded.username) {
+            addcollectorModel.find().then(
+                (items)=>{
+                    res.json(items)
+                }
+            ).catch(
+                (error)=>{
+                res.json({"status":"Error"})
+            }
+        )
+        }else{
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+})
+
+//ViewUser API
+app.post("/viewuser",(req,res)=>{
+    let token = req.headers.token
+    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+        if(decoded && decoded.username) {
+            userModel.find().then(
+                (items)=>{
+                    res.json(items)
+                }
+            ).catch(
+                (error)=>{
+                res.json({"status":"Error"})
+            }
+        )
+        }else{
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+})
+
+//WasteCollectorSignUp API
+app.post("/collectsignup",(req,res)=>{
+  let input = req.body
+  let hashedPassword = Bcrypt.hashSync(input.password,10)
+  input.password = hashedPassword
+  //console.log(input)
+  let result = new collectModel(input)
+  result.save()
+  res.json({ status: "Success" });
+})
+
+//WasteCollectorSignIn API
+app.post("/collectsignin", async(req,res)=>{
+  let input = req.body
+  let result = collectModel.find({username:req.body.username}).then(
+          (items)=>{
+              if (items.length>0) 
+              {
+                  const passwordValidator = Bcrypt.compareSync(req.body.password, items[0].password)
+                  if (passwordValidator) 
+                  {
+                      jwt.sign({username:req.body.username},"waste_mngmt",{expiresIn:"1d"},
+                          (error,token)=>{
+                              if (error) 
+                              {
+                                  res.json({"status":"Error","Error":error})
+                              } 
+                              else 
+                              {
+                                  res.json({ status: "Success","token":token,"collectorId":items[0]._id });
                               }
                           })
                   } 
@@ -120,6 +228,31 @@ app.post("/signup", async (req, res) => {
     })
     .catch((error) => {});
 });
+
+
+//UserFeedback API
+app.post("/userfeedback",async(req,res) => {
+    let input = req.body
+    
+    //pass awt token and validate token, otherwise anyone could post 
+    //either pass through body or through headers
+    //through headers--->
+    let token = req.headers.token
+    
+    //verify token
+    jwt.verify(token,"waste_mngmt",async(error, decoded)=> {
+        if (decoded && decoded.email) 
+        {
+            let result = new userfeedbackModel(input)
+            await result.save()
+            res.json({"status":"Success"})
+        } 
+        else    //if token is wrong, post cannot be posted
+        {
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+})
 
 app.listen(8080, () => {
   console.log("server started");
