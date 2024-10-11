@@ -254,6 +254,28 @@ app.post("/userfeedback",async(req,res) => {
     })
 })
 
+
+//ViewFeedback API
+app.post("/viewfeedback",(req,res)=>{
+    let token = req.headers.token
+    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+        if(decoded && decoded.username) {
+            userfeedbackModel.find().then(
+                (items)=>{
+                    res.json(items)
+                }
+            ).catch(
+                (error)=>{
+                res.json({"status":"Error"})
+            }
+        )
+        }else{
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+})
+
+
 app.listen(8080, () => {
   console.log("server started");
 });
