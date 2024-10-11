@@ -262,24 +262,31 @@ app.post("/userfeedback",async(req,res) => {
 
 
 //ViewFeedback API
-app.post("/viewfeedback",(req,res)=>{
-    let token = req.headers.token
-    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
-        if(decoded && decoded.username) {
-            userfeedbackModel.find().then(
-                (items)=>{
-                    res.json(items)
-                }
-            ).catch(
-                (error)=>{
-                res.json({"status":"Error"})
+// ViewFeedback API
+app.post("/viewfeedback", async (req, res) => {
+    let token = req.headers.token;
+    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+        if (decoded && decoded.username) {
+            try {
+                const feedbackItems = await userfeedbackModel.find().lean();
+                const feedbackWithEmails = await Promise.all(feedbackItems.map(async (item) => {
+                    const user = await userModel.findById(item.userId).select('email');
+                    return {
+                        ...item,
+                        email: user ? user.email : 'Unknown', // Default to 'Unknown' if email is not found
+                    };
+                }));
+                res.json(feedbackWithEmails);
+            } catch (error) {
+                console.error("Error retrieving feedback:", error);
+                res.json({ "status": "Error" });
             }
-        )
-        }else{
-            res.json({"status":"Invalid Authentication"})
+        } else {
+            res.json({ "status": "Invalid Authentication" });
         }
-    })
-})
+    });
+});
+
 
 
 app.listen(8080, () => {
