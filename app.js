@@ -243,14 +243,20 @@ app.post("/userfeedback",async(req,res) => {
     jwt.verify(token,"waste_mngmt",async(error, decoded)=> {
         if (decoded && decoded.email) 
         {
-            let result = new userfeedbackModel(input)
-            await result.save()
-            res.json({"status":"Success"})
-        } 
-        else    //if token is wrong, post cannot be posted
-        {
+            const user = await userModel.findOne({ username: decoded.username });
+            if (user)
+            {
+                input.userId = user._id;
+                input.email = user.email;
+                let result = new userfeedbackModel(input)
+                await result.save()
+                res.json({"status":"Success"})
+            } 
+            else    //if token is wrong, post cannot be posted
+            {
             res.json({"status":"Invalid Authentication"})
         }
+    }
     })
 })
 
