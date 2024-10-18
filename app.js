@@ -8,6 +8,7 @@ const adminModel = require("./models/Admin");
 const collectModel = require("./models/Collector");
 const addcollectorModel = require("./models/AddCollector");
 const userfeedbackModel = require("./models/UserFeedback");
+const wastepickupModel = require("./models/WastePickup");
 
 let app = Express();
 app.use(Express.json());
@@ -230,6 +231,32 @@ app.post("/signup", async (req, res) => {
 });
 
 
+//WasteRequest API
+app.post("/wastepickup",async(req,res) => {
+    let input = req.body
+    let token = req.headers.token
+    
+    //verify token
+    jwt.verify(token,"waste_mngmt",async(error, decoded)=> {
+        if (decoded && decoded.email) 
+        {
+            const user = await userModel.findOne({ username: decoded.username });
+            if (user)
+            {
+                input.userId = user._id;
+                input.email = user.email;
+                let result = new wastepickupModel(input)
+                await result.save()
+                res.json({"status":"Success"})
+            } 
+            else   
+            {
+            res.json({"status":"Invalid Authentication"})
+        }
+    }
+    })
+})
+
 //UserFeedback API
 app.post("/userfeedback",async(req,res) => {
     let input = req.body
@@ -252,7 +279,7 @@ app.post("/userfeedback",async(req,res) => {
                 await result.save()
                 res.json({"status":"Success"})
             } 
-            else    //if token is wrong, post cannot be posted
+            else  
             {
             res.json({"status":"Invalid Authentication"})
         }
@@ -261,7 +288,7 @@ app.post("/userfeedback",async(req,res) => {
 })
 
 
-//ViewFeedback API
+
 // ViewFeedback API
 app.post("/viewfeedback", async (req, res) => {
     let token = req.headers.token;
