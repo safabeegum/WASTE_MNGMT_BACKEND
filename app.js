@@ -231,8 +231,10 @@ app.post("/signup", async (req, res) => {
 });
 
 
-//WasteRequest API
-app.post("/wastepickup",async(req,res) => {
+
+
+//Add WasteRequest API
+app.post("/addrequest",async(req,res) => {
     let input = req.body
     let token = req.headers.token
     
@@ -256,6 +258,76 @@ app.post("/wastepickup",async(req,res) => {
     }
     })
 })
+
+
+//View WasteRequest API
+app.post("/viewrequest", async (req, res) => {
+    let token = req.headers.token;
+    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+        if (decoded && decoded.username) {
+            try {
+                const requestItems = await wastepickupModel.find().lean();
+                const pickuprequest = await Promise.all(requestItems.map(async (item) => {
+                    const user1 = await userModel.findById(item.userId).select('email');
+                    const user2 = await userModel.findById(item.userId).select('first_name');
+                    const user3 = await userModel.findById(item.userId).select('last_name');
+                    const user4 = await userModel.findById(item.userId).select('address');
+                    return {
+                        ...item,
+                        email: user1 ? user1.email : 'Unknown', // Default to 'Unknown' if email is not found
+                        first_name: user2 ? user2.first_name : 'Unknown', // Default to 'Unknown' if first name is not found
+                        last_name: user3 ? user3.last_name : 'Unknown', // Default to 'Unknown' if last name is not found
+                        address: user4 ? user4.address : 'Unknown', // Default to 'Unknown' if address is not found
+                    };
+                }));
+                res.json(pickuprequest);
+            } catch (error) {
+                console.error("Error retrieving Request", error);
+                res.json({ "status": "Error" });
+            }
+        } else {
+            res.json({ "status": "Invalid Authentication" });
+        }
+    });
+});
+
+
+//RequestTable API
+app.post("/requesttable", async (req, res) => {
+    let token = req.headers.token;
+    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+        if (decoded && decoded.username) {
+            try {
+                const requestItems = await wastepickupModel.find().lean();
+                const pickuprequest = await Promise.all(requestItems.map(async (item) => {
+                    const user1 = await userModel.findById(item.userId).select('email');
+                    const user2 = await userModel.findById(item.userId).select('first_name');
+                    const user3 = await userModel.findById(item.userId).select('address');
+                    const user4 = await wastepickupModel.findById(item.userId).select('quantity');
+                    const user5 = await wastepickupModel.findById(item.userId).select('addinfo');
+                    return {
+                        ...item,
+                        email: user1 ? user1.email : 'Unknown', // Default to 'Unknown' if email is not found
+                        first_name: user2 ? user2.first_name : 'Unknown', // Default to 'Unknown' if first name is not found
+                        address: user3 ? user3.address : 'Unknown', // Default to 'Unknown' if address is not found
+                        quantity: user4 ? user4.quantity : 'Unknown', // Default to 'Unknown' if address is not found
+                        addinfo: user5 ? user5.addinfo : 'Unknown', // Default to 'Unknown' if address is not found
+                        postedDate: item.postedDate || 'Unknown'// Default to 'Unknown' if address is not found
+                    };
+                }));
+                res.json(pickuprequest);
+            } catch (error) {
+                console.error("Error retrieving Request", error);
+                res.json({ "status": "Error" });
+            }
+        } else {
+            res.json({ "status": "Invalid Authentication" });
+        }
+    });
+});
+
+
+
 
 //UserFeedback API
 app.post("/userfeedback",async(req,res) => {
@@ -305,7 +377,7 @@ app.post("/viewfeedback", async (req, res) => {
                 }));
                 res.json(feedbackWithEmails);
             } catch (error) {
-                console.error("Error retrieving feedback:", error);
+                console.error("Error retrieving feedback", error);
                 res.json({ "status": "Error" });
             }
         } else {
