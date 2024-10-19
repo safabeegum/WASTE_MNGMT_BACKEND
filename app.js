@@ -9,6 +9,7 @@ const collectModel = require("./models/Collector");
 const addcollectorModel = require("./models/AddCollector");
 const userfeedbackModel = require("./models/UserFeedback");
 const wastepickupModel = require("./models/WastePickup");
+const assigntaskModel = require("./models/AssignTask");
 
 let app = Express();
 app.use(Express.json());
@@ -326,6 +327,25 @@ app.post("/requesttable", async (req, res) => {
     });
 });
 
+
+//AssignTask API
+app.post("/assigntask",(req,res)=>{
+    let input = req.body
+    let token = req.headers.token
+
+//verifying token is valid  (start)
+    jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+        if(decoded && decoded.username) {
+                let result = new assigntaskModel(input)
+                await result.save()
+                res.json({"status":"Success"})
+        }
+        else{
+            res.json({"status":"Invalid Authentication"})
+        }
+    })
+//  (end)
+})
 
 
 
