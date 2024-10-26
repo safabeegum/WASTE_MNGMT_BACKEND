@@ -2,6 +2,8 @@ const Express = require("express");
 const Mongoose = require("mongoose");
 const Cors = require("cors");
 const jwt = require("jsonwebtoken");
+const axios = require('axios');
+const bodyParser = require("body-parser");
 const router = Express.Router();
 const Bcrypt = require("bcrypt");
 const userModel = require("./models/Users");
@@ -209,27 +211,47 @@ app.post("/signin", async(req,res)=>{
 })
 
 
-//UserSignUp API
+// User SignUp API
 app.post("/signup", async (req, res) => {
-  let input = req.body;
-  let hashedPassword = Bcrypt.hashSync(req.body.password, 10);
-  console.log(hashedPassword);
-  req.body.password = hashedPassword;
-  console.log(input);
+    let input = req.body;
 
-  //checking if same mail id exists
-  userModel
-    .find({ email: req.body.email })
-    .then((items) => {
-      if (items.length > 0) {
-        res.json({ status: "Email ID already Exists" });
-      } else {
-        let result = new userModel(input);
-        result.save();
-        res.json({ status: "Success" });
-      }
-    })
-    .catch((error) => {});
+    try {
+        // Hash the password
+        const hashedPassword = Bcrypt.hashSync(req.body.password, 10);
+        req.body.password = hashedPassword;
+
+        // Checking if the same email exists
+        const existingUser = await userModel.findOne({ email: req.body.email });
+        if (existingUser) {
+            return res.json({ status: "Email ID already exists" });
+        }
+
+        // Geocode the address to get latitude and longitude
+        const address = req.body.address;
+        const geocodeResponse = await axios.get('https://nominatim.openstreetmap.org/search', {
+            params: {
+                format: 'json',
+                q: address,
+            },
+        });
+
+        if (geocodeResponse.data.length > 0) {
+            const location = geocodeResponse.data[0];
+            const newUser = new userModel({
+                ...input,
+                latitude: location.lat,   // Add latitude
+                longitude: location.lon,   // Add longitude
+            });
+
+            await newUser.save();
+            return res.json({ status: "Success" });
+        } else {
+            return res.json({ status: "Address not found" });
+        }
+    } catch (error) {
+        console.error("Error during signup:", error.message); // Log the error for debugging
+        return res.status(500).json({ status: "Error during sign up", error: error.message });
+    }
 });
 
 
@@ -291,9 +313,10 @@ app.get("/getUserAddress/:userId", async (req, res) => {
 
 
 
-//View WasteRequest API
+// View WasteRequest API
 app.post("/viewrequest", async (req, res) => {
     let token = req.headers.token;
+    
     jwt.verify(token, "waste_mngmt", async (error, decoded) => {
         if (decoded && decoded.username) {
             try {
@@ -304,7 +327,7 @@ app.post("/viewrequest", async (req, res) => {
                 const pickuprequest = await Promise.all(requestItems.map(async (item) => {
                     // Query the user and select required fields in one call
                     const user = await userModel.findById(item.userId)
-                        .select('email first_name last_name address');
+                        .select('email first_name last_name address latitude longitude'); // Include latitude and longitude
                     
                     return {
                         ...item,
@@ -312,6 +335,8 @@ app.post("/viewrequest", async (req, res) => {
                         first_name: user ? user.first_name : 'Unknown', 
                         last_name: user ? user.last_name : 'Unknown', 
                         address: user ? user.address : 'Unknown',
+                        latitude: user ? user.latitude : null,   // Include latitude
+                        longitude: user ? user.longitude : null, // Include longitude
                         pickupId: item.pickupId, // Include pickupId directly from the item
                     };
                 }));
@@ -327,6 +352,7 @@ app.post("/viewrequest", async (req, res) => {
         }
     });
 });
+
 
 
 // //AssignTask API       
@@ -422,8 +448,7 @@ app.post("/viewrequest", async (req, res) => {
 //   module.exports = router;
 
 
-
-// Get Requests
+// Get Requests API
 app.get("/getRequests", async (req, res) => {
     try {
         const token = req.headers.token;
@@ -436,10 +461,24 @@ app.get("/getRequests", async (req, res) => {
                 return res.status(401).json({ status: "Invalid Token" });
             }
 
-            const requests = await wastepickupModel.find()
-                .populate("userId", "first_name last_name address");
-            
-            return res.json(requests);
+            // Fetch only requests without an assigned worker
+            const requests = await wastepickupModel.find({ assignedWorker: null })
+                .populate("userId", "first_name last_name address latitude longitude");
+
+            // Map through requests and handle null userIds
+            const response = requests.map((request) => {
+                const user = request.userId || {};
+                return {
+                    ...request.toObject(), // Convert mongoose document to plain object
+                    first_name: user.first_name || "Unknown",
+                    last_name: user.last_name || "Unknown",
+                    address: user.address || "Unknown",
+                    latitude: user.latitude || null,
+                    longitude: user.longitude || null,
+                };
+            });
+
+            return res.json(response);
         });
     } catch (error) {
         console.error("Error fetching requests:", error);
@@ -447,7 +486,7 @@ app.get("/getRequests", async (req, res) => {
     }
 });
 
-// Get Workers
+// Get Workers API
 app.get("/getWorkers", async (req, res) => {
     try {
         const token = req.headers.token;
@@ -469,12 +508,12 @@ app.get("/getWorkers", async (req, res) => {
     }
 });
 
-// Assign Task
+// Assign Task API
 app.post("/assigntask/:requestId", async (req, res) => {
     const { requestId } = req.params;
     const { workerId, assignedDate, assignedTime } = req.body;
 
-    console.log("Assign Task Request:", { requestId, workerId, assignedDate, assignedTime }); // Log the assignment details
+    console.log("Assign Task Request:", { requestId, workerId, assignedDate, assignedTime });
 
     try {
         const token = req.headers.token;
@@ -508,6 +547,8 @@ app.post("/assigntask/:requestId", async (req, res) => {
         return res.status(500).json({ status: "Error assigning worker", error: error.message });
     }
 });
+
+
 
 
 
@@ -601,31 +642,31 @@ app.post("/viewfeedback", async (req, res) => {
     });
 });
 
-//RequestTable
-app.post("/requesttable", async (req, res) => {
-    let token = req.headers.token;
-    console.log("Token received:", token);
-    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
-      if (error) {
-        console.log("Token verification error:", error);
-        return res.status(401).json({ status: "Invalid Authentication", message: error.message });
-      }
-      console.log("Decoded JWT:", decoded);
-      try {
-        const requestItems = await wastepickupModel.find().lean();
-        const pickupRequests = await Promise.all(
-          requestItems.map(async (item) => {
-            const user = await userModel.findById(item.userId).select('email first_name last_name address');
-            return { pickupId: item.pickupId, userId: item.userId, address: user?.address || 'Unknown', postedDate: item.postedDate };
-          })
-        );
-        res.json(pickupRequests);
-      } catch (err) {
-        console.error("Error fetching requests:", err);
-        res.status(500).json({ status: "Error", message: err.message });
-      }
-    });
-});
+// //RequestTable
+// app.post("/requesttable", async (req, res) => {
+//     let token = req.headers.token;
+//     console.log("Token received:", token);
+//     jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+//       if (error) {
+//         console.log("Token verification error:", error);
+//         return res.status(401).json({ status: "Invalid Authentication", message: error.message });
+//       }
+//       console.log("Decoded JWT:", decoded);
+//       try {
+//         const requestItems = await wastepickupModel.find().lean();
+//         const pickupRequests = await Promise.all(
+//           requestItems.map(async (item) => {
+//             const user = await userModel.findById(item.userId).select('email first_name last_name address');
+//             return { pickupId: item.pickupId, userId: item.userId, address: user?.address || 'Unknown', postedDate: item.postedDate };
+//           })
+//         );
+//         res.json(pickupRequests);
+//       } catch (err) {
+//         console.error("Error fetching requests:", err);
+//         res.status(500).json({ status: "Error", message: err.message });
+//       }
+//     });
+// });
 
   
 
@@ -643,6 +684,65 @@ app.post("/requesttable", async (req, res) => {
 //     } catch (error) {
 //         console.error("Error fetching event data by ID:", error);
 //         res.status(500).json({ message: "Error fetching event data" }); // Send error message if something goes wrong
+//     }
+// });
+
+
+// MapGeo API
+app.get('/api/geocode', async (req, res) => {
+    const { address } = req.query; // Extract address from query parameters
+
+    // Check if address is provided
+    if (!address) {
+        return res.status(400).json({ error: 'Address is required' });
+    }
+
+    try {
+        const response = await axios.get(`https://nominatim.openstreetmap.org/search`, {
+            params: {
+                format: 'json',
+                q: address,
+            },
+        });
+
+        // Check if response has any results
+        if (response.data.length > 0) {
+            const location = response.data[0]; // Get the first result
+            res.json({
+                latitude: location.lat,
+                longitude: location.lon,
+            });
+        } else {
+            res.status(404).json({ error: 'Location not found' });
+        }
+    } catch (error) {
+        console.error('Error retrieving data:', error.message); // Log the error for debugging
+        res.status(500).json({ error: 'Error retrieving data' });
+    }
+});
+
+
+// // Geocode Address Route
+// app.post('/geocodeAddress', async (req, res) => {
+//     const address = req.body.address;
+
+//     try {
+//         const geocodeResponse = await axios.get('https://nominatim.openstreetmap.org/search', {
+//             params: {
+//                 format: 'json',
+//                 q: address,
+//             },
+//         });
+
+//         if (geocodeResponse.data.length > 0) {
+//             const { lat, lon } = geocodeResponse.data[0]; // Get the latitude and longitude
+//             res.json({ latitude: lat, longitude: lon });
+//         } else {
+//             res.status(404).json({ status: "Address not found" });
+//         }
+//     } catch (error) {
+//         console.error("Error fetching geocode data:", error);
+//         res.status(500).json({ status: "Error fetching geocode data", message: error.message });
 //     }
 // });
 

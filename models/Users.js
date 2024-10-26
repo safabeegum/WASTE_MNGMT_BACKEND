@@ -53,6 +53,12 @@ const userSchema = Mongoose.Schema(
         {
             type:String,
             required:true
+        },
+        latitude: {
+            type: String,  // Add latitude field
+        },
+        longitude: {
+            type: String,  // Add longitude field
         }
     }
 )

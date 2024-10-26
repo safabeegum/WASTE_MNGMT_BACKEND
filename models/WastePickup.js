@@ -19,7 +19,10 @@ const wastepickupSchema = Mongoose.Schema(
         requestedDate: {
             type: Date,
             default: Date.now // Automatically set to the current date/time
-        }
+        },
+        assignedWorker: { 
+            type: Mongoose.Schema.Types.ObjectId,
+             ref: 'Worker', default: null }, // Add this line
     }
 );
 
