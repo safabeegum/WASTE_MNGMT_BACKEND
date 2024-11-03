@@ -13,6 +13,10 @@ const addcollectorModel = require("./models/AddCollector");
 const userfeedbackModel = require("./models/UserFeedback");
 const wastepickupModel = require("./models/WastePickup");
 const assigntaskModel = require("./models/AssignTask");
+const Notification = require('./models/Notification'); 
+const transactionModel = require('./models/transaction');
+
+
 
 let app = Express();
 app.use(Express.json());
@@ -312,7 +316,6 @@ app.get("/getUserAddress/:userId", async (req, res) => {
 });
 
 
-
 // View WasteRequest API
 app.post("/viewrequest", async (req, res) => {
     let token = req.headers.token;
@@ -352,101 +355,6 @@ app.post("/viewrequest", async (req, res) => {
         }
     });
 });
-
-
-
-// //AssignTask API       
-// router.post('/assigntask/:pickupId/:userId', async (req, res) => {
-//     console.log('Received request:', {
-//       body: req.body,
-//       params: req.params,
-//       headers: req.headers
-//     });
-  
-//     try {
-//       const { pickupId, userId } = req.params;
-//       const { name, date, status, addnote } = req.body;
-  
-//       if (!pickupId || !userId) {
-//         return res.status(400).json({
-//           status: 'Error',
-//           message: 'Missing pickup ID or user ID'
-//         });
-//       }
-  
-//       const token = req.headers.token;
-//       if (!token) {
-//         return res.status(401).json({
-//           status: 'Error',
-//           message: 'Authentication token is missing'
-//         });
-//       }
-  
-//       // Verify the token
-//       try {
-//         const decoded = jwt.verify(token, "waste_mngmt");
-//         if (!decoded) {
-//           return res.status(401).json({
-//             status: 'Error',
-//             message: 'Invalid token'
-//           });
-//         }
-//       } catch (tokenError) {
-//         console.error('Token verification error:', tokenError);
-//         return res.status(401).json({
-//           status: 'Error',
-//           message: 'Token verification failed'
-//         });
-//       }
-  
-//       // Validate required fields
-//       if (!name || !date) {
-//         return res.status(400).json({
-//           status: 'Error',
-//           message: 'Name and date are required fields'
-//         });
-//       }
-  
-//       // Check if pickup request exists
-//       const pickupRequest = await wastepickupModel.findById(pickupId);
-//       if (!pickupRequest) {
-//         return res.status(404).json({
-//           status: 'Error',
-//           message: 'Pickup request not found'
-//         });
-//       }
-  
-//       // Create new task
-//       const newTask = new assigntaskModel({
-//         pickupId,
-//         userId,
-//         name,
-//         date,
-//         status: status || 'Pending',
-//         addnote: addnote || ''
-//       });
-  
-//       // Save the task
-//       const savedTask = await newTask.save();
-//       console.log('Task saved successfully:', savedTask);
-  
-//       return res.status(200).json({
-//         status: 'Success',
-//         message: 'Task successfully assigned',
-//         task: savedTask
-//       });
-  
-//     } catch (error) {
-//       console.error('Server error:', error);
-//       return res.status(500).json({
-//         status: 'Error',
-//         message: 'Internal server error: ' + error.message
-//       });
-//     }
-//   });
-  
-//   module.exports = router;
-
 
 // Get Requests API
 app.get("/getRequests", async (req, res) => {
@@ -513,8 +421,6 @@ app.post("/assigntask/:requestId", async (req, res) => {
     const { requestId } = req.params;
     const { workerId, assignedDate, assignedTime } = req.body;
 
-    console.log("Assign Task Request:", { requestId, workerId, assignedDate, assignedTime });
-
     try {
         const token = req.headers.token;
         if (!token) {
@@ -526,19 +432,31 @@ app.post("/assigntask/:requestId", async (req, res) => {
                 return res.status(401).json({ status: "Invalid Token" });
             }
 
+            // Fetch worker details and assign the worker to the request
+            const worker = await collectModel.findById(workerId).select("first_name last_name");
             const updatedRequest = await wastepickupModel.findByIdAndUpdate(
                 requestId,
-                {
-                    assignedWorker: workerId,
-                    assignedDate: assignedDate,
-                    assignedTime: assignedTime,
-                },
+                { assignedWorker: workerId, assignedDate, assignedTime },
                 { new: true }
             ).populate("userId", "first_name last_name");
 
             if (!updatedRequest) {
                 return res.status(404).json({ status: "Request Not Found" });
             }
+
+            // Compose a detailed notification message
+            const notificationMessage = `
+                Hello ${updatedRequest.userId.first_name} ${updatedRequest.userId.last_name},
+                a worker (${worker.first_name} ${worker.last_name}) has been assigned to your waste pickup request.
+                Scheduled Pickup Date: ${assignedDate}
+                Scheduled Pickup Time: ${assignedTime}
+            `;
+
+            // Create a notification for the user
+            await Notification.create({
+                userId: updatedRequest.userId._id,
+                message: notificationMessage.trim(),
+            });
 
             return res.json({ status: "Worker Assigned Successfully", data: updatedRequest });
         });
@@ -549,49 +467,84 @@ app.post("/assigntask/:requestId", async (req, res) => {
 });
 
 
-
-
-
-//ViewTask API
-app.post("/viewtask", async (req, res) => {
-    let token = req.headers.token;
-    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
-        if (decoded && decoded.username) {
-            try {
-                const requestItems = await assigntaskModel.find().lean();
-                const pickuprequest = await Promise.all(requestItems.map(async (item) => {
-                    // Fetch user details using the correct userId from assigntaskModel
-                    const user1 = await assigntaskModel.findById(item.userId).select('email');
-                    const user2 = await assigntaskModel.findById(item.userId).select('first_name');
-                    const user3 = await assigntaskModel.findById(item.userId).select('address');
-
-                    return {
-                        ...item,
-                        email: user1 ? user1.email : 'Unknown',
-                        first_name: user2 ? user2.first_name : 'Unknown',
-                        address: user3 ? user3.address : 'Unknown',
-                    };
-                }));
-                res.json(pickuprequest);
-            } catch (error) {
-                console.error("Error retrieving Request", error);
-                res.json({ "status": "Error" });
-            }
-        } else {
-            res.json({ "status": "Invalid Authentication" });
+//Notifications API
+app.get("/notifications", async (req, res) => {
+    try {
+        const token = req.headers.token;
+        if (!token) {
+            return res.status(403).json({ status: "Unauthorized" });
         }
-    });
+
+        jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+            if (error) {
+                return res.status(401).json({ status: "Invalid Token" });
+            }
+
+            try {
+                const userId = decoded.userId;
+                const notifications = await Notification.find({ userId }).sort({ createdAt: -1 });
+                
+                return res.json(notifications);
+            } catch (dbError) {
+                console.error("Database error fetching notifications:", dbError);
+                return res.status(500).json({ status: "Error fetching notifications", error: dbError.message });
+            }
+        });
+    } catch (error) {
+        console.error("Error in /notifications route:", error);
+        return res.status(500).json({ status: "Server error", error: error.message });
+    }
 });
+
+
+//Viewtask API
+app.post("/viewtask", async (req, res) => {
+    try {
+        const token = req.headers.token;
+        if (!token) {
+            return res.status(403).json({ status: "Unauthorized" });
+        }
+
+        jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+            if (error) {
+                return res.status(401).json({ status: "Invalid Token" });
+            }
+
+            // Fetch tasks with worker assignment details
+            const tasks = await wastepickupModel.find({ assignedWorker: { $ne: null } })
+                .populate("userId", "first_name last_name address latitude longitude")
+                .populate("assignedWorker", "first_name last_name");
+
+            const response = tasks.map((task) => {
+                const user = task.userId || {};
+                const worker = task.assignedWorker || {};
+                return {
+                    pickupId: task._id,
+                    requestId: task.requestId,
+                    address: user.address || "Unknown",
+                    assignedDate: task.assignedDate,
+                    assignedTime: task.assignedTime,
+                    latitude: user.latitude || null,
+                    longitude: user.longitude || null,
+                    workerName: `${worker.first_name || "Unknown"} ${worker.last_name || "Unknown"}`
+                };
+            });
+
+            return res.json(response);
+        });
+    } catch (error) {
+        console.error("Error fetching tasks:", error);
+        return res.status(500).json({ status: "Error fetching tasks", error: error.message });
+    }
+});
+
+
 
 
 
 //UserFeedback API
 app.post("/userfeedback",async(req,res) => {
     let input = req.body
-    
-    //pass awt token and validate token, otherwise anyone could post 
-    //either pass through body or through headers
-    //through headers--->
     let token = req.headers.token
     
     //verify token
@@ -642,52 +595,6 @@ app.post("/viewfeedback", async (req, res) => {
     });
 });
 
-// //RequestTable
-// app.post("/requesttable", async (req, res) => {
-//     let token = req.headers.token;
-//     console.log("Token received:", token);
-//     jwt.verify(token, "waste_mngmt", async (error, decoded) => {
-//       if (error) {
-//         console.log("Token verification error:", error);
-//         return res.status(401).json({ status: "Invalid Authentication", message: error.message });
-//       }
-//       console.log("Decoded JWT:", decoded);
-//       try {
-//         const requestItems = await wastepickupModel.find().lean();
-//         const pickupRequests = await Promise.all(
-//           requestItems.map(async (item) => {
-//             const user = await userModel.findById(item.userId).select('email first_name last_name address');
-//             return { pickupId: item.pickupId, userId: item.userId, address: user?.address || 'Unknown', postedDate: item.postedDate };
-//           })
-//         );
-//         res.json(pickupRequests);
-//       } catch (err) {
-//         console.error("Error fetching requests:", err);
-//         res.status(500).json({ status: "Error", message: err.message });
-//       }
-//     });
-// });
-
-  
-
-
-
-// app.post("/requesttable/:id", async (req, res) => {
-//     const { id } = req.params; // Get the ID from the URL
-
-//     try {
-//         const event = await formModel.findById(id); // Query the database for the specific event by ID
-//         if (!event) {
-//             return res.status(404).json({ message: "Event not found" }); // Return 404 if no event is found
-//         }
-//         res.json(event); // Send the specific event details as JSON
-//     } catch (error) {
-//         console.error("Error fetching event data by ID:", error);
-//         res.status(500).json({ message: "Error fetching event data" }); // Send error message if something goes wrong
-//     }
-// });
-
-
 // MapGeo API
 app.get('/api/geocode', async (req, res) => {
     const { address } = req.query; // Extract address from query parameters
@@ -722,29 +629,116 @@ app.get('/api/geocode', async (req, res) => {
 });
 
 
-// // Geocode Address Route
-// app.post('/geocodeAddress', async (req, res) => {
-//     const address = req.body.address;
+//Transaction API
+app.post("/api/transactions", async (req, res) => {
+    let token = req.headers.token;
 
-//     try {
-//         const geocodeResponse = await axios.get('https://nominatim.openstreetmap.org/search', {
-//             params: {
-//                 format: 'json',
-//                 q: address,
-//             },
-//         });
+    // Verify token
+    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+        if (error) {
+            return res.status(401).json({ status: "Invalid Token" });
+        }
 
-//         if (geocodeResponse.data.length > 0) {
-//             const { lat, lon } = geocodeResponse.data[0]; // Get the latitude and longitude
-//             res.json({ latitude: lat, longitude: lon });
-//         } else {
-//             res.status(404).json({ status: "Address not found" });
+        if (decoded && decoded.email) {
+            const user = await userModel.findOne({ email: decoded.email });
+
+            if (user) {
+                const { amount, description, month } = req.body; // Extract month from req.body
+
+                try {
+                    const newTransaction = new transactionModel({
+                        userId: user._id,
+                        amount,
+                        description,
+                        month, // Add month to the new transaction
+                    });
+                    const savedTransaction = await newTransaction.save();
+                    res.status(201).json({ status: "Success", transaction: savedTransaction });
+                } catch (error) {
+                    console.error("Error creating transaction:", error);
+                    res.status(500).json({ status: "Error", error: error.message }); // Send error message to frontend
+                }
+            } else {
+                return res.status(404).json({ status: "User Not Found" });
+            }
+        } else {
+            return res.status(401).json({ status: "Invalid Authentication" });
+        }
+    });
+});
+
+
+// app.post("/viewuser",(req,res)=>{
+//     let token = req.headers.token
+//     jwt.verify(token,"waste_mngmt",async(error,decoded)=>{
+//         if(decoded && decoded.username) {
+//             userModel.find().then(
+//                 (items)=>{
+//                     res.json(items)
+//                 }
+//             ).catch(
+//                 (error)=>{
+//                 res.json({"status":"Error"})
+//             }
+//         )
+//         }else{
+//             res.json({"status":"Invalid Authentication"})
 //         }
-//     } catch (error) {
-//         console.error("Error fetching geocode data:", error);
-//         res.status(500).json({ status: "Error fetching geocode data", message: error.message });
-//     }
-// });
+//     })
+// })
+
+
+
+// Simplified version to fetch all transactions
+app.get('/api/transactions', async (req, res) => {
+    try {
+        const transactions = await transactionModel.find().populate('userId'); // Populate user details if needed
+        res.status(200).json(transactions); // Return the transactions
+    } catch (error) {
+        console.error("Error fetching transactions:", error);
+        res.status(500).json({ status: "Error", error: error.message });
+    }
+});
+
+
+
+
+
+
+
+app.get('/api/invoices', async (req, res) => {
+    const token = req.headers.token;
+
+    // Verify token
+    jwt.verify(token, "waste_mngmt", async (error, decoded) => {
+        if (error) {
+            return res.status(401).json({ message: 'Invalid Token' });
+        }
+
+        if (decoded && decoded.email) {
+            // Find the user using the decoded email
+            const user = await userModel.findOne({ email: decoded.email });
+
+            if (user) {
+                try {
+                    const invoices = await transactionModel.find({ userId: user._id })
+                        .populate('userId', 'first_name last_name') // Populate user details
+                        .exec();
+
+                    res.json(invoices);
+                } catch (error) {
+                    res.status(500).json({ message: 'Error retrieving invoices', error });
+                }
+            } else {
+                return res.status(404).json({ message: "User Not Found" });
+            }
+        } else {
+            return res.status(401).json({ message: "Invalid Authentication" });
+        }
+    });
+});
+
+
 
 app.listen(8080, () => {
   console.log("server started");
